@@ -1,0 +1,21 @@
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Editor and Python artifacts
+.DS_Store
+.vscode/
+.idea/
+__pycache__/
+*.py[cod]
+# EDA runs and generated outputs
+runs/
+*.log
+*.vcd
+*.fsdb
+*.vpd
+simv
+simv.daidir/
+csrc/

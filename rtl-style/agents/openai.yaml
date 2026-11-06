@@ -1,0 +1,5 @@
+interface:
+  display_name: "RTL 编码与审阅规范"
+  short_description: "严格执行 RTL 分支、端口排版、三段式状态机与中文注释规范"
+policy:
+  allow_implicit_invocation: true
