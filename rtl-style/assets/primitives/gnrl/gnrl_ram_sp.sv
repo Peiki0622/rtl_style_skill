@@ -31,8 +31,8 @@ module gnrl_ram_sp #(
 
     localparam int LW = DW / MW;     // 每个写掩码位控制的位宽，DW不能被MW整除时为非法配置。
 
-    logic [DW-1:0] mem_r [DP];  // 存储阵列行为模型，不复位。
-    logic          rd_ena;      // 读使能：片选有效且为读操作。
+    logic [DW-1:0] mem_q [DP];  // 存储阵列行为模型，不复位。
+    logic          rd_en;       // 读使能：片选有效且为读操作。
     logic [DW-1:0] rd_dat;      // 按addr组合选出的存储字，读使能时装入读数据寄存器。
 
     // 写操作：按写掩码逐段更新，未选中的段保持原值。
@@ -40,16 +40,16 @@ module gnrl_ram_sp #(
         if (cs && we) begin
             for (int k = 0; k < MW; k = k + 1) begin
                 if (wem[k]) begin
-                    mem_r[addr][k*LW +: LW] <= `STD_DLY din[k*LW +: LW];
+                    mem_q[addr][k*LW +: LW] <= `STD_DLY din[k*LW +: LW];
                 end
             end
         end
     end
 
     // 读操作：按地址选出存储字，读命令的上升沿装入读数据寄存器，其余周期保持。
-    assign rd_ena = cs & (~we);
-    assign rd_dat = mem_r[addr];
-    std_dffl #(.DW(DW)) u_dout_dffl (rd_ena, rd_dat, dout, clk);
+    assign rd_en  = cs & (~we);
+    assign rd_dat = mem_q[addr];
+    std_dffl #(.DW(DW)) u_dout_dffl (rd_en, rd_dat, dout, clk);
 
 // synopsys translate_off
     // 参数检查：深度至少为2，字宽须能被掩码位数整除。

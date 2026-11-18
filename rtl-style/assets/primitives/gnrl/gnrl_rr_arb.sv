@@ -31,16 +31,16 @@ module gnrl_rr_arb #(
     end else begin : g_n_gt_1
         localparam logic [N-1:0] ONE = 1;  // N位常数1，用于取最低位和生成屏蔽，保证运算位宽为N。
 
-        logic [N-1:0] pri_mask_r;    // 优先级屏蔽寄存器：为1的位是上次授权者之后的请求位。
-        logic [N-1:0] pri_mask_nxt;  // 屏蔽下一值：本次授权位之上的所有位。
-        logic         pri_mask_ena;  // 屏蔽更新使能：存在授权且被确认。
+        logic [N-1:0] pri_mask_q;    // 优先级屏蔽寄存器：为1的位是上次授权者之后的请求位。
+        logic [N-1:0] pri_mask_d;    // 屏蔽下一值：本次授权位之上的所有位。
+        logic         pri_mask_en;   // 屏蔽更新使能：存在授权且被确认。
         logic [N-1:0] req_masked;    // 屏蔽后的请求：只保留上次授权者之后的请求。
         logic [N-1:0] gnt_masked;    // 屏蔽请求中的最低位。
         logic [N-1:0] gnt_unmasked;  // 全部请求中的最低位。
         logic [N-1:0] gnt_shl;       // 授权左移一位，最高位移出丢弃。
 
         // 候选授权：分别在屏蔽请求和全部请求中取最低的为1位。
-        assign req_masked   = req & pri_mask_r;
+        assign req_masked   = req & pri_mask_q;
         assign gnt_masked   = req_masked & (~(req_masked - ONE));
         assign gnt_unmasked = req & (~(req - ONE));
 
@@ -50,11 +50,11 @@ module gnrl_rr_arb #(
         // 屏蔽更新：保留授权位之上的位；授权在最高位时左移结果为0，减1得全1，取反后屏蔽为0，
         // 下一轮从第0路开始。
         assign gnt_shl      = {gnt[N-2:0], 1'b0};
-        assign pri_mask_nxt = ~(gnt_shl - ONE);
-        assign pri_mask_ena = gnt_ack & (|req);
+        assign pri_mask_d   = ~(gnt_shl - ONE);
+        assign pri_mask_en  = gnt_ack & (|req);
 
         // 优先级屏蔽寄存器：复位为0，即第0路优先；授权被确认时轮转。
-        std_dfflr #(.DW(N)) u_pri_mask_dfflr (pri_mask_ena, pri_mask_nxt, pri_mask_r, clk, rst_n);
+        std_dfflr #(.DW(N)) u_pri_mask_dfflr (pri_mask_en, pri_mask_d, pri_mask_q, clk, rst_n);
     end
 
 endmodule

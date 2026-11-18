@@ -32,7 +32,7 @@ module gnrl_ram_tp #(
 
     localparam int LW = DW / MW;     // 每个写掩码位控制的位宽，DW不能被MW整除时为非法配置。
 
-    logic [DW-1:0] mem_r [DP];  // 存储阵列行为模型，不复位。
+    logic [DW-1:0] mem_q [DP];  // 存储阵列行为模型，不复位。
     logic [DW-1:0] rd_dat;      // 按raddr组合选出的存储字，读使能时装入读数据寄存器。
 
     // 写操作：按写掩码逐段更新，未选中的段保持原值。
@@ -40,7 +40,7 @@ module gnrl_ram_tp #(
         if (wen) begin
             for (int k = 0; k < MW; k = k + 1) begin
                 if (wem[k]) begin
-                    mem_r[waddr][k*LW +: LW] <= `STD_DLY wdat[k*LW +: LW];
+                    mem_q[waddr][k*LW +: LW] <= `STD_DLY wdat[k*LW +: LW];
                 end
             end
         end
@@ -48,7 +48,7 @@ module gnrl_ram_tp #(
 
     // 读操作：按读地址选出存储字，读使能的上升沿装入读数据寄存器，其余周期保持；
     // 同拍写入在该沿之后才更新存储阵列，不影响本次读出。
-    assign rd_dat = mem_r[raddr];
+    assign rd_dat = mem_q[raddr];
     std_dffl #(.DW(DW)) u_rdat_dffl (ren, rd_dat, rdat, clk);
 
 // synopsys translate_off

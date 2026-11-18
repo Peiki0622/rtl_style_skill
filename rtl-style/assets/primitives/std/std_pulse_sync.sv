@@ -23,14 +23,14 @@ module std_pulse_sync #(
     output logic  dst_pulse
 );
 
-    logic src_tgl_r;     // 源域翻转电平，每个src_pulse翻转一次，复位为0。
-    logic src_tgl_nxt;   // 源域翻转电平的下一值，即当前值取反。
+    logic src_tgl_q;     // 源域翻转电平，每个src_pulse翻转一次，复位为0。
+    logic src_tgl_d;     // 源域翻转电平的下一值，即当前值取反。
     logic dst_tgl_sync;  // 翻转电平同步到目标域后的值。
-    logic dst_tgl_r;     // 同步后翻转电平延迟一拍，用于边沿检测。
+    logic dst_tgl_q;     // 同步后翻转电平延迟一拍，用于边沿检测。
 
     // 源域翻转：src_pulse有效的上升沿翻转一次，其余周期保持。
-    assign src_tgl_nxt = ~src_tgl_r;
-    std_dfflr #(.DW(1)) u_src_tgl_dfflr (src_pulse, src_tgl_nxt, src_tgl_r, src_clk, src_rst_n);
+    assign src_tgl_d = ~src_tgl_q;
+    std_dfflr #(.DW(1)) u_src_tgl_dfflr (src_pulse, src_tgl_d, src_tgl_q, src_clk, src_rst_n);
 
     // 电平同步：把源域翻转电平同步到目标域，复位值与源域一致为0。
     std_sync #(
@@ -39,7 +39,7 @@ module std_pulse_sync #(
         .RST_VAL (1'b0)      // 与源域翻转寄存器复位值一致，复位释放后不产生假边沿。
     ) u_tgl_sync (
         // 异步输入：源域翻转寄存器输出，无组合逻辑。
-        .din_a (src_tgl_r),
+        .din_a (src_tgl_q),
 
         // 同步输出：目标域翻转电平。
         .dout  (dst_tgl_sync),
@@ -50,9 +50,9 @@ module std_pulse_sync #(
     );
 
     // 边沿检测：保存上一拍同步电平，与当前值不同即表示收到一次源事件。
-    std_dffr #(.DW(1)) u_dst_tgl_dffr (dst_tgl_sync, dst_tgl_r, dst_clk, dst_rst_n);
+    std_dffr #(.DW(1)) u_dst_tgl_dffr (dst_tgl_sync, dst_tgl_q, dst_clk, dst_rst_n);
 
     // 目标脉冲：同步电平的任一跳变产生一个dst_clk周期的脉冲。
-    assign dst_pulse = dst_tgl_sync ^ dst_tgl_r;
+    assign dst_pulse = dst_tgl_sync ^ dst_tgl_q;
 
 endmodule

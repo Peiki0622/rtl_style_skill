@@ -47,16 +47,16 @@ module gnrl_fifo #(
 
         logic           wen;                 // 写握手：本拍写入一条数据。
         logic           ren;                 // 读握手：本拍弹出一条数据。
-        logic [DP-1:0]  wptr_vec_r;          // 独热写指针，指向下一次写入的条目。
-        logic [DP-1:0]  wptr_vec_nxt;        // 写指针下一值：循环左移一位。
-        logic [DP-1:0]  rptr_vec_r;          // 独热读指针，指向队首条目。
-        logic [DP-1:0]  rptr_vec_nxt;        // 读指针下一值：循环左移一位。
-        logic [DP-1:0]  cnt_vec_r;           // 温度计码占用量，第k位为1表示条目数大于k。
-        logic [DP-1:0]  cnt_vec_nxt;         // 占用量下一值：只写时左移入1，只读时右移入0。
-        logic           cnt_vec_ena;         // 占用量更新使能：只写或只读时更新，同拍读写时不变。
+        logic [DP-1:0]  wptr_vec_q;          // 独热写指针，指向下一次写入的条目。
+        logic [DP-1:0]  wptr_vec_d;          // 写指针下一值：循环左移一位。
+        logic [DP-1:0]  rptr_vec_q;          // 独热读指针，指向队首条目。
+        logic [DP-1:0]  rptr_vec_d;          // 读指针下一值：循环左移一位。
+        logic [DP-1:0]  cnt_vec_q;           // 温度计码占用量，第k位为1表示条目数大于k。
+        logic [DP-1:0]  cnt_vec_d;           // 占用量下一值：只写时左移入1，只读时右移入0。
+        logic           cnt_vec_en;          // 占用量更新使能：只写或只读时更新，同拍读写时不变。
         logic           fifo_full;           // 满标志：条目数等于DP。
         logic [DP-1:0]  fifo_rf_en;          // 各条目写使能：写握手且写指针指向该条目。
-        logic [DW-1:0]  fifo_rf_r [DP_SAFE]; // 存储体，各条目不复位，由占用量限定有效性。
+        logic [DW-1:0]  fifo_rf_q [DP_SAFE]; // 存储体，各条目不复位，由占用量限定有效性。
         logic [DW-1:0]  mux_rdat;            // 按独热读指针选出的队首数据。
 
         // 握手：写入受i_rdy限制，读出受o_vld限制，保证不上溢也不下溢。
@@ -65,31 +65,31 @@ module gnrl_fifo #(
 
         if (DP == 1) begin : g_ptr_dp_eq_1
             // 单条目：指针恒指向第0个条目；只写时占用量置1，只读时清0。
-            assign wptr_vec_nxt = 1'b1;
-            assign rptr_vec_nxt = 1'b1;
-            assign cnt_vec_nxt  = wen;
+            assign wptr_vec_d   = 1'b1;
+            assign rptr_vec_d   = 1'b1;
+            assign cnt_vec_d    = wen;
         end else begin : g_ptr_dp_gt_1
             // 多条目：指针循环左移，最高位回到第0位；占用量按读写方向移位。
-            assign wptr_vec_nxt = {wptr_vec_r[DP-2:0], wptr_vec_r[DP-1]};
-            assign rptr_vec_nxt = {rptr_vec_r[DP-2:0], rptr_vec_r[DP-1]};
-            assign cnt_vec_nxt  = wen ? {cnt_vec_r[DP-2:0], 1'b1} : {1'b0, cnt_vec_r[DP-1:1]};
+            assign wptr_vec_d   = {wptr_vec_q[DP-2:0], wptr_vec_q[DP-1]};
+            assign rptr_vec_d   = {rptr_vec_q[DP-2:0], rptr_vec_q[DP-1]};
+            assign cnt_vec_d    = wen ? {cnt_vec_q[DP-2:0], 1'b1} : {1'b0, cnt_vec_q[DP-1:1]};
         end
 
         // 写指针：复位指向第0个条目，每次写握手前进一格。
         std_dfflr #(.DW(DP), .RST_VAL(PTR_RST_VAL))
-            u_wptr_vec_dfflr (wen, wptr_vec_nxt, wptr_vec_r, clk, rst_n);
+            u_wptr_vec_dfflr (wen, wptr_vec_d, wptr_vec_q, clk, rst_n);
 
         // 读指针：复位指向第0个条目，每次读握手前进一格。
         std_dfflr #(.DW(DP), .RST_VAL(PTR_RST_VAL))
-            u_rptr_vec_dfflr (ren, rptr_vec_nxt, rptr_vec_r, clk, rst_n);
+            u_rptr_vec_dfflr (ren, rptr_vec_d, rptr_vec_q, clk, rst_n);
 
         // 占用量：复位为空；只写或只读时更新，同拍读写时条目数不变。
-        assign cnt_vec_ena = wen ^ ren;
-        std_dfflr #(.DW(DP)) u_cnt_vec_dfflr (cnt_vec_ena, cnt_vec_nxt, cnt_vec_r, clk, rst_n);
+        assign cnt_vec_en = wen ^ ren;
+        std_dfflr #(.DW(DP)) u_cnt_vec_dfflr (cnt_vec_en, cnt_vec_d, cnt_vec_q, clk, rst_n);
 
         // 空满：o_vld取占用量最低位，满标志取最高位，均直接来自寄存器。
-        assign fifo_full = cnt_vec_r[DP-1];
-        assign o_vld     = cnt_vec_r[0];
+        assign fifo_full = cnt_vec_q[DP-1];
+        assign o_vld     = cnt_vec_q[0];
 
         if (DP == 1) begin : g_rdy_dp_eq_1
             if (CUT_READY == 1) begin : g_cut_ready
@@ -106,17 +106,17 @@ module gnrl_fifo #(
 
         // 存储体：每个条目只在写握手且写指针指向它时装入。
         for (genvar i = 0; i < DP; i = i + 1) begin : g_fifo_rf
-            assign fifo_rf_en[i] = wen & wptr_vec_r[i];
+            assign fifo_rf_en[i] = wen & wptr_vec_q[i];
 
             // 条目寄存器：不复位，由占用量和读指针保证只读出已写入的值。
-            std_dffl #(.DW(DW)) u_fifo_rf_dffl (fifo_rf_en[i], i_dat, fifo_rf_r[i], clk);
+            std_dffl #(.DW(DW)) u_fifo_rf_dffl (fifo_rf_en[i], i_dat, fifo_rf_q[i], clk);
         end
 
         // 读出选择：独热读指针按位与后逐项相或，没有优先级链。
         always_comb begin : RD_MUX_PROC
             mux_rdat = '0;
             for (int j = 0; j < DP; j = j + 1) begin
-                mux_rdat = mux_rdat | ({DW{rptr_vec_r[j]}} & fifo_rf_r[j]);
+                mux_rdat = mux_rdat | ({DW{rptr_vec_q[j]}} & fifo_rf_q[j]);
             end
         end
 

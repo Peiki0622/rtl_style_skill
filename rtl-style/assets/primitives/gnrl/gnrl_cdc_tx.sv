@@ -31,18 +31,18 @@ module gnrl_cdc_tx #(
 );
 
     logic           o_rdy_sync;    // o_rdy_a同步到本域后的电平。
-    logic           o_rdy_sync_r;  // o_rdy_sync延迟一拍，用于下降沿检测。
+    logic           o_rdy_sync_q;  // o_rdy_sync延迟一拍，用于下降沿检测。
     logic           o_rdy_nedge;   // o_rdy下降沿：接收端完成四相握手第(4)步。
     logic           vld_set;       // o_vld置位条件：本域输入握手成功，开始一次跨域传输。
     logic           vld_clr;       // o_vld清零条件：接收端已应答，即握手第(3)步。
-    logic           vld_ena;       // o_vld更新使能。
-    logic           vld_nxt;       // o_vld下一值；置位与清零不会同拍发生。
-    logic           vld_r;         // o_vld寄存器输出。
+    logic           vld_en;        // o_vld更新使能。
+    logic           vld_d;         // o_vld下一值；置位与清零不会同拍发生。
+    logic           vld_q;         // o_vld寄存器输出。
     logic           nrdy_set;      // 忙标志置位条件：开始一次跨域传输。
     logic           nrdy_clr;      // 忙标志清零条件：检测到o_rdy下降沿，传输完全结束。
-    logic           nrdy_ena;      // 忙标志更新使能。
-    logic           nrdy_nxt;      // 忙标志下一值。
-    logic           nrdy_r;        // 忙标志：从接收新数据到四相握手结束期间为1。
+    logic           nrdy_en;       // 忙标志更新使能。
+    logic           nrdy_d;        // 忙标志下一值。
+    logic           nrdy_q;        // 忙标志：从接收新数据到四相握手结束期间为1。
 
     // 应答同步：接收端的o_rdy_a先同步到本域再使用。
     std_sync #(
@@ -62,15 +62,15 @@ module gnrl_cdc_tx #(
     );
 
     // 应答下降沿：上一拍为1、本拍为0，表示接收端已撤销应答，四相握手结束。
-    std_dffr #(.DW(1)) u_o_rdy_sync_dffr (o_rdy_sync, o_rdy_sync_r, clk, rst_n);
-    assign o_rdy_nedge = (~o_rdy_sync) & o_rdy_sync_r;
+    std_dffr #(.DW(1)) u_o_rdy_sync_dffr (o_rdy_sync, o_rdy_sync_q, clk, rst_n);
+    assign o_rdy_nedge = (~o_rdy_sync) & o_rdy_sync_q;
 
     // 跨域有效：本域握手时置位；看到同步后的应答为1时清零，完成第(3)步。
     assign vld_set = i_vld & i_rdy;
     assign vld_clr = o_vld & o_rdy_sync;
-    assign vld_ena = vld_set | vld_clr;
-    assign vld_nxt = vld_set | (~vld_clr);
-    std_dfflr #(.DW(1)) u_vld_dfflr (vld_ena, vld_nxt, vld_r, clk, rst_n);
+    assign vld_en  = vld_set | vld_clr;
+    assign vld_d   = vld_set | (~vld_clr);
+    std_dfflr #(.DW(1)) u_vld_dfflr (vld_en, vld_d, vld_q, clk, rst_n);
 
     // 跨域数据：只在开始传输时装入，并保持到下一次传输开始。
     std_dfflr #(.DW(DW)) u_dat_dfflr (vld_set, i_dat, o_dat, clk, rst_n);
@@ -80,12 +80,12 @@ module gnrl_cdc_tx #(
     // 即在看到应答下降沿的同一拍就可以开始下一次传输。
     assign nrdy_set = vld_set;
     assign nrdy_clr = o_rdy_nedge;
-    assign nrdy_ena = nrdy_set | nrdy_clr;
-    assign nrdy_nxt = nrdy_set | (~nrdy_clr);
-    std_dfflr #(.DW(1)) u_nrdy_dfflr (nrdy_ena, nrdy_nxt, nrdy_r, clk, rst_n);
+    assign nrdy_en  = nrdy_set | nrdy_clr;
+    assign nrdy_d   = nrdy_set | (~nrdy_clr);
+    std_dfflr #(.DW(1)) u_nrdy_dfflr (nrdy_en, nrdy_d, nrdy_q, clk, rst_n);
 
     // 输出：跨域有效来自寄存器；忙标志为0或正在清零时可以接收新数据。
-    assign o_vld = vld_r;
-    assign i_rdy = (~nrdy_r) | nrdy_clr;
+    assign o_vld = vld_q;
+    assign i_rdy = (~nrdy_q) | nrdy_clr;
 
 endmodule

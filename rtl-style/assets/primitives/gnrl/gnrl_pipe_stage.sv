@@ -36,30 +36,30 @@ module gnrl_pipe_stage #(
     end else begin : g_dp_gt_0
         logic vld_set;  // 有效标志置位条件：输入握手成功，本级装入新数据。
         logic vld_clr;  // 有效标志清零条件：输出握手成功，本级数据被取走。
-        logic vld_ena;  // 有效标志更新使能：置位或清零任一发生。
-        logic vld_nxt;  // 有效标志下一值：同拍置位与清零时置位优先，保持为1。
-        logic vld_r;    // 有效标志寄存器输出，即o_vld。
+        logic vld_en;   // 有效标志更新使能：置位或清零任一发生。
+        logic vld_d;    // 有效标志下一值：同拍置位与清零时置位优先，保持为1。
+        logic vld_q;    // 有效标志寄存器输出，即o_vld。
 
         // 有效标志：输入握手置位、输出握手清零；同拍出入时新数据接替旧数据，保持有效。
         assign vld_set = i_vld & i_rdy;
         assign vld_clr = o_vld & o_rdy;
-        assign vld_ena = vld_set | vld_clr;
-        assign vld_nxt = vld_set | (~vld_clr);
+        assign vld_en  = vld_set | vld_clr;
+        assign vld_d   = vld_set | (~vld_clr);
 
         // 有效标志寄存器：复位为0表示本级为空；置位或清零时更新。
-        std_dfflr #(.DW(1)) u_vld_dfflr (vld_ena, vld_nxt, vld_r, clk, rst_n);
+        std_dfflr #(.DW(1)) u_vld_dfflr (vld_en, vld_d, vld_q, clk, rst_n);
 
         // 数据寄存器：只在输入握手时装入；不复位，由o_vld限定使用。
         std_dffl #(.DW(DW)) u_dat_dffl (vld_set, i_dat, o_dat, clk);
 
-        assign o_vld = vld_r;
+        assign o_vld = vld_q;
 
         if (CUT_READY == 1) begin : g_cut_ready
             // 切断反压：只有本级为空才接收，i_rdy不依赖o_rdy。
-            assign i_rdy = ~vld_r;
+            assign i_rdy = ~vld_q;
         end else begin : g_no_cut_ready
             // 不切断反压：本级为空，或本拍数据正被取走时都可接收。
-            assign i_rdy = (~vld_r) | vld_clr;
+            assign i_rdy = (~vld_q) | vld_clr;
         end
     end
 

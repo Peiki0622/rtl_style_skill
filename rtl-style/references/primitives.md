@@ -2,7 +2,7 @@
 
 本文件说明技能自带原语库的部署、目录、选型和例化写法。源码位于[`../assets/primitives/`](../assets/primitives/)，每个文件一个模块，均按本技能风格编写。
 
-- `std_`：单元级原语，如触发器、锁存器、门控时钟、时钟选择、同步器和复位同步器。时序`always`只允许出现在`std_`原语和`gnrl_ram_*`存储模型内部。
+- `std_`：单元级原语，如触发器、锁存器、门控时钟、时钟选择、同步器和复位同步器。参与综合的时序`always`只允许出现在`std_`原语和`gnrl_ram_*`存储模型内部；功能模块中不参与综合的检查代码不受此限（见SKILL.md）。
 - `gnrl_`：由`std_`原语搭成的通用功能块，如流水级、FIFO、跨时钟域握手、异步FIFO、仲裁器和存储器模型。
 
 ## 1. 部署到项目
@@ -78,17 +78,19 @@ X检查在仿真第0个时钟沿就开始生效，不受复位屏蔽；测试平
 
 | 后缀 | 含义 |
 |---|---|
-| `xxx_r` | 原语`qout`，寄存器当前值 |
-| `xxx_nxt` | 原语`dnxt`，下一值 |
-| `xxx_ena` | 原语`lden`，更新使能 |
-| `xxx_set`／`xxx_clr` | 置位、清零条件，由它们组合出`_ena`和`_nxt` |
+| `xxx_q` | 原语`qout`，寄存器当前值 |
+| `xxx_d` | 原语`dnxt`，下一值 |
+| `xxx_en` | 原语`lden`，更新使能 |
+| `xxx_set`／`xxx_clr` | 置位、清零条件，由它们组合出`_en`和`_d` |
+
+原语的端口名`dnxt`、`qout`、`lden`是固定接口，不随信号命名约定改变。
 
 实例命名为`u_<寄存器名>_<原语简称>`，例如`u_vld_dfflr`、`u_state_dffr`、`u_fifo_rf_dffl`。
 
 ### 4.2 单行位置例化（只适用于`std_dff*`和`std_ltch`）
 
 - 一个实例一行，端口按2.1节固定顺序位置连接；参数一律按名称覆盖，`RST_VAL`取默认值时可以省略。
-- 位置连接同样不得直接写逻辑表达式：`dnxt`、`lden`等先用具名的`_nxt`、`_ena`信号计算再连接；直接信号、位／部分选择和常量可以保留。
+- 位置连接同样不得直接写逻辑表达式：`dnxt`、`lden`等先用具名的`_d`、`_en`信号计算再连接；直接信号、位／部分选择和常量可以保留。
 - 实例上方紧邻一行中文注释，说明寄存器用途、复位值依据和更新条件；它代替逐项参数行尾注释。同功能的一组寄存器可共用一段注释，但每个寄存器的复位和更新条件都要写清楚。
 - 单行超过100列时，可在参数列表后换行；端口连接仍然保持在同一行，顺序不变。
 - 其他`std_`和全部`gnrl_`实例按名称逐行连接，遵守端口分组注释和参数行尾注释要求。
@@ -99,66 +101,75 @@ X检查在仿真第0个时钟沿就开始生效，不受复位屏蔽；测试平
 // 输出有效标志：复位为0；输入握手置位、输出握手清零，同拍发生时置位优先，保持有效。
 assign vld_set = i_vld & i_rdy;
 assign vld_clr = o_vld & o_rdy;
-assign vld_ena = vld_set | vld_clr;
-assign vld_nxt = vld_set | (~vld_clr);
-std_dfflr #(.DW(1)) u_vld_dfflr (vld_ena, vld_nxt, vld_r, clk, rst_n);
+assign vld_en  = vld_set | vld_clr;
+assign vld_d   = vld_set | (~vld_clr);
+std_dfflr #(.DW(1)) u_vld_dfflr (vld_en, vld_d, vld_q, clk, rst_n);
 ```
 
-清零优先时写`vld_nxt = vld_set & (~vld_clr)`，并在注释中说明原因。
+清零优先时写`vld_d = vld_set & (~vld_clr)`，并在注释中说明原因。
 
 ### 4.4 计数器与配置寄存器
 
 ```systemverilog
 // 超时计数：复位为0；start时清零重新计数，busy期间每拍加1，其余时间保持。
-assign tmo_cnt_ena = start | busy_r;
-assign tmo_cnt_nxt = start ? '0 : (tmo_cnt_r + 1'b1);
-std_dfflr #(.DW(CNT_W)) u_tmo_cnt_dfflr (tmo_cnt_ena, tmo_cnt_nxt, tmo_cnt_r, clk, rst_n);
+assign tmo_cnt_en = start | busy_q;
+assign tmo_cnt_d  = start ? '0 : (tmo_cnt_q + 1'b1);
+std_dfflr #(.DW(CNT_W)) u_tmo_cnt_dfflr (tmo_cnt_en, tmo_cnt_d, tmo_cnt_q, clk, rst_n);
 
 // 分频配置：复位为CFG_DIV_DEFAULT，使上电后无需软件配置即可工作；cfg_wr时写入。
 std_dfflr #(.DW(8), .RST_VAL(CFG_DIV_DEFAULT))
-    u_cfg_div_dfflr (cfg_wr, cfg_wdata[7:0], cfg_div_r, clk, rst_n);
+    u_cfg_div_dfflr (cfg_wr, cfg_wdata[7:0], cfg_div_q, clk, rst_n);
 ```
 
 ### 4.5 数据级与小寄存器堆
 
 ```systemverilog
 // 结果数据：只在结果握手时装入；不复位，下游以res_vld_r限定使用。
-std_dffl #(.DW(DW)) u_res_dat_dffl (res_set, res_dat_nxt, res_dat_r, clk);
+std_dffl #(.DW(DW)) u_res_dat_dffl (res_set, res_dat_d, res_dat_q, clk);
 
 // 寄存器堆：每个条目在写使能且地址匹配时装入；不复位，读出由软件保证先写后读。
 for (genvar i = 0; i < RF_DP; i = i + 1) begin : g_rf
     assign rf_wen[i] = wr_en & (wr_addr == RF_AW'(i));
-    std_dffl #(.DW(DW)) u_rf_dffl (rf_wen[i], wr_dat, rf_r[i], clk);
+    std_dffl #(.DW(DW)) u_rf_dffl (rf_wen[i], wr_dat, rf_q[i], clk);
 end
 ```
 
 ### 4.6 状态寄存器（三段式第一段）
 
+状态编码使用`typedef enum`，显式写基础类型、位宽和编码值，逐项附中文注释。`state_q`、`state_d`声明为枚举类型，仿真打印和Verdi中直接显示状态名。
+
 ```systemverilog
-localparam logic [1:0] IDLE      = 2'd0;  // 等待新请求，允许上游在busy=0时发起操作。
-localparam logic [1:0] WAIT_DONE = 2'd1;  // 请求已接受，等待执行器完成；期间不接受新请求。
-localparam logic [1:0] REPORT    = 2'd2;  // 对上游报告一拍done，下一拍回到IDLE。
+typedef enum logic [1:0] {
+    S_IDLE      = 2'd0,  // 等待新请求，允许上游在busy=0时发起操作；复位入口。
+    S_WAIT_DONE = 2'd1,  // 请求已接受，等待执行器完成；期间不接受新请求。
+    S_REPORT    = 2'd2   // 对上游报告一拍done，下一拍回到S_IDLE。
+} state_t;
 
-logic [1:0] state_r;    // 当前状态。
-logic [1:0] state_nxt;  // 下一状态，由第二段组合逻辑给出。
+state_t     state_q;      // 当前状态，由state_raw_q显式转换得到。
+state_t     state_d;      // 下一状态，由第二段组合逻辑给出。
+logic [1:0] state_raw_q;  // 状态寄存器原语的logic输出，只用于转换为state_q。
 
-// 第一段：状态寄存器，复位进入IDLE，每拍装入第二段计算的下一状态。
-std_dffr #(.DW(2), .RST_VAL(IDLE)) u_state_dffr (state_nxt, state_r, clk, rst_n);
+// 第一段：状态寄存器，复位进入S_IDLE，每拍装入第二段计算的下一状态。
+std_dffr #(.DW(2), .RST_VAL(S_IDLE)) u_state_dffr (state_d, state_raw_q, clk, rst_n);
+assign state_q = state_t'(state_raw_q);
 ```
 
-状态编码用`localparam`；使用`enum`时须先在`logic`向量上例化原语，再显式转换为枚举类型。不能直接把`logic`输出口连到枚举变量。
+- `dnxt`直接连接枚举变量`state_d`：枚举到`logic`向量的转换合法。
+- `qout`必须先连接同宽的`logic`向量，再显式转换。直接把`qout`连到枚举变量是非法的枚举赋值（VCS报`ENUMASSIGN`），不同工具处理不一致。
+- `DW`等于枚举基础类型位宽，可写`$bits(state_t)`；`RST_VAL`写复位入口的枚举常量。
+- 已验证：VCS W-2024.09 `+lint=all`编译无告警，DC W-2024.09 `analyze`／`elaborate`／`check_design`无错误和告警。
 
 ### 4.7 跨时钟域
 
 ```systemverilog
-// 启动请求同步：cfg域的start_lvl_r是寄存器输出，同步到core域后使用；复位值与源端一致为0。
+// 启动请求同步：cfg域的start_lvl_q是寄存器输出，同步到core域后使用；复位值与源端一致为0。
 std_sync #(
     .DP      (2),     // 两级同步，满足本设计频率下的MTBF要求。
     .DW      (1),     // 单比特电平。
     .RST_VAL (1'b0)   // 与源端寄存器复位值一致，复位释放后不产生假启动。
 ) u_start_sync (
     // 异步输入：cfg域寄存器输出，无组合逻辑。
-    .din_a (start_lvl_r),
+    .din_a (start_lvl_q),
 
     // 同步输出：core域电平。
     .dout  (start_lvl_sync),

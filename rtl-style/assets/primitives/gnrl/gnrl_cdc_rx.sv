@@ -30,20 +30,20 @@ module gnrl_cdc_rx #(
 );
 
     logic           i_vld_sync;       // i_vld_a同步到本域后的电平。
-    logic           i_vld_sync_r;     // i_vld_sync延迟一拍，用于下降沿检测。
+    logic           i_vld_sync_q;     // i_vld_sync延迟一拍，用于下降沿检测。
     logic           i_vld_sync_nedge; // i_vld下降沿：发送端完成四相握手第(3)步。
     logic           buf_rdy;          // 本地缓冲为空，可以接收新传输。
     logic           i_rdy_set;        // 应答置位条件：缓冲为空、看到有效且尚未应答。
     logic           i_rdy_clr;        // 应答清零条件：检测到i_vld下降沿。
-    logic           i_rdy_ena;        // 应答更新使能。
-    logic           i_rdy_nxt;        // 应答下一值。
-    logic           i_rdy_r;          // 应答寄存器输出，即i_rdy。
-    logic           buf_dat_ena;      // 缓冲数据装入使能：与应答置位同拍。
+    logic           i_rdy_en;         // 应答更新使能。
+    logic           i_rdy_d;          // 应答下一值。
+    logic           i_rdy_q;          // 应答寄存器输出，即i_rdy。
+    logic           buf_dat_en;       // 缓冲数据装入使能：与应答置位同拍。
     logic           buf_vld_set;      // 缓冲有效置位条件：装入新数据。
     logic           buf_vld_clr;      // 缓冲有效清零条件：本域输出握手成功。
-    logic           buf_vld_ena;      // 缓冲有效更新使能。
-    logic           buf_vld_nxt;      // 缓冲有效下一值。
-    logic           buf_vld_r;        // 缓冲有效寄存器输出，即o_vld。
+    logic           buf_vld_en;       // 缓冲有效更新使能。
+    logic           buf_vld_d;        // 缓冲有效下一值。
+    logic           buf_vld_q;        // 缓冲有效寄存器输出，即o_vld。
 
     // 有效同步：发送端的i_vld_a先同步到本域再使用。
     std_sync #(
@@ -63,30 +63,30 @@ module gnrl_cdc_rx #(
     );
 
     // 有效下降沿：上一拍为1、本拍为0，表示发送端已撤销有效，可以撤销应答。
-    std_dffr #(.DW(1)) u_i_vld_sync_dffr (i_vld_sync, i_vld_sync_r, clk, rst_n);
-    assign i_vld_sync_nedge = (~i_vld_sync) & i_vld_sync_r;
+    std_dffr #(.DW(1)) u_i_vld_sync_dffr (i_vld_sync, i_vld_sync_q, clk, rst_n);
+    assign i_vld_sync_nedge = (~i_vld_sync) & i_vld_sync_q;
 
     // 应答：缓冲为空且看到有效时置位，完成第(2)步；看到有效下降沿时清零，完成第(4)步。
-    assign i_rdy_set = buf_rdy & i_vld_sync & (~i_rdy_r);
+    assign i_rdy_set = buf_rdy & i_vld_sync & (~i_rdy_q);
     assign i_rdy_clr = i_vld_sync_nedge;
-    assign i_rdy_ena = i_rdy_set | i_rdy_clr;
-    assign i_rdy_nxt = i_rdy_set | (~i_rdy_clr);
-    std_dfflr #(.DW(1)) u_i_rdy_dfflr (i_rdy_ena, i_rdy_nxt, i_rdy_r, clk, rst_n);
-    assign i_rdy = i_rdy_r;
+    assign i_rdy_en  = i_rdy_set | i_rdy_clr;
+    assign i_rdy_d   = i_rdy_set | (~i_rdy_clr);
+    std_dfflr #(.DW(1)) u_i_rdy_dfflr (i_rdy_en, i_rdy_d, i_rdy_q, clk, rst_n);
+    assign i_rdy = i_rdy_q;
 
     // 缓冲数据：与应答置位同拍采样i_dat，此时发送端保证数据已稳定。
-    assign buf_dat_ena = i_rdy_set;
-    std_dfflr #(.DW(DW)) u_buf_dat_dfflr (buf_dat_ena, i_dat, o_dat, clk, rst_n);
+    assign buf_dat_en = i_rdy_set;
+    std_dfflr #(.DW(DW)) u_buf_dat_dfflr (buf_dat_en, i_dat, o_dat, clk, rst_n);
 
     // 缓冲有效：装入时置位，本域输出握手时清零；两者不会同拍发生，因为只有空缓冲才装入。
-    assign buf_vld_set = buf_dat_ena;
+    assign buf_vld_set = buf_dat_en;
     assign buf_vld_clr = o_vld & o_rdy;
-    assign buf_vld_ena = buf_vld_set | buf_vld_clr;
-    assign buf_vld_nxt = buf_vld_set | (~buf_vld_clr);
-    std_dfflr #(.DW(1)) u_buf_vld_dfflr (buf_vld_ena, buf_vld_nxt, buf_vld_r, clk, rst_n);
+    assign buf_vld_en  = buf_vld_set | buf_vld_clr;
+    assign buf_vld_d   = buf_vld_set | (~buf_vld_clr);
+    std_dfflr #(.DW(1)) u_buf_vld_dfflr (buf_vld_en, buf_vld_d, buf_vld_q, clk, rst_n);
 
     // 输出：缓冲为空才可接收下一次跨域传输。
-    assign buf_rdy = ~buf_vld_r;
-    assign o_vld   = buf_vld_r;
+    assign buf_rdy = ~buf_vld_q;
+    assign o_vld   = buf_vld_q;
 
 endmodule

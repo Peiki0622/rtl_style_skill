@@ -56,7 +56,7 @@ result_sink #(
 
 ## 三段式状态机与逐状态、逐转移说明
 
-这是一个完整的控制器风格示例：`start`只在空闲沿接受；`operation_done`最早在之后的等待周期出现。`REPORT`的一个报告周期属于本示例协议，不是所有设计都要增加的状态。没有超时需求，因此没有添加看门狗或锁定机制。状态寄存器由`std_dffr`原语实现，模块内没有时序过程块。
+这是一个完整的控制器风格示例：`start`只在空闲沿接受；`operation_done`最早在之后的等待周期出现。`S_REPORT`的一个报告周期属于本示例协议，不是所有设计都要增加的状态。没有超时需求，因此没有添加看门狗或锁定机制。状态寄存器由`std_dffr`原语实现，模块内参与综合的部分没有时序过程块；状态用枚举类型声明，仿真和Verdi中直接显示状态名。
 
 ```systemverilog
 module request_controller (
@@ -71,43 +71,49 @@ module request_controller (
     output logic  done
 );
 
-    localparam logic [1:0] IDLE      = 2'd0;  // 等待新请求，允许上游在busy=0时发起操作；复位入口。
-    localparam logic [1:0] WAIT_DONE = 2'd1;  // 请求已经接受，等待执行器完成；期间不接受新请求。
-    localparam logic [1:0] REPORT    = 2'd2;  // 对上游报告一拍done，保持busy直到报告周期结束。
+    typedef enum logic [1:0] {
+        S_IDLE      = 2'd0,  // 等待新请求，允许上游在busy=0时发起操作；复位入口。
+        S_WAIT_DONE = 2'd1,  // 请求已经接受，等待执行器完成；期间不接受新请求。
+        S_REPORT    = 2'd2   // 对上游报告一拍done，保持busy直到报告周期结束。
+    } state_t;
 
-    logic [1:0] state_r;    // 当前状态，来自状态寄存器原语。
-    logic [1:0] state_nxt;  // 下一状态，由第二段组合逻辑给出。
+    state_t                    state_q;      // 当前状态，由state_raw_q显式转换得到。
+    state_t                    state_d;      // 下一状态，由第二段组合逻辑给出。
+    logic [$bits(state_t)-1:0] state_raw_q;  // 状态寄存器原语的logic输出，只用于转换为state_q。
 
-    // 第一段：状态寄存器，复位进入IDLE以取消在途请求；复位释放后每拍装入下一状态。
-    std_dffr #(.DW(2), .RST_VAL(IDLE)) u_state_dffr (state_nxt, state_r, clk, rst_n);
+    // 第一段：状态寄存器，复位进入S_IDLE以取消在途请求；复位释放后每拍装入下一状态。
+    // 原语qout是logic向量，先接state_raw_q再显式转换，不直接连到枚举变量。
+    std_dffr #(.DW($bits(state_t)), .RST_VAL(S_IDLE))
+        u_state_dffr (state_d, state_raw_q, clk, rst_n);
+    assign state_q = state_t'(state_raw_q);
 
     // 第二段：计算下一状态，不在本块更新计数、数据或输出。
     always_comb begin
         // 没有新请求或尚未完成时保持状态，不重复启动或提前报告。
-        state_nxt = state_r;
-        case (state_r)
-            IDLE: begin
+        state_d = state_q;
+        case (state_q)
+            S_IDLE: begin
                 if (start) begin
                     // 本沿接受请求，下一拍拉高busy并等待执行器完成。
-                    state_nxt = WAIT_DONE;
+                    state_d = S_WAIT_DONE;
                 end
             end
 
-            WAIT_DONE: begin
+            S_WAIT_DONE: begin
                 if (operation_done) begin
-                    // 捕获完成条件后进入报告周期，done在进入REPORT后有效。
-                    state_nxt = REPORT;
+                    // 捕获完成条件后进入报告周期，done在进入S_REPORT后有效。
+                    state_d = S_REPORT;
                 end
             end
 
-            REPORT: begin
+            S_REPORT: begin
                 // 报告只保持一拍，下一拍回空闲，允许后续请求。
-                state_nxt = IDLE;
+                state_d = S_IDLE;
             end
 
             default: begin
                 // 未使用的编码2'd3返回空闲入口，不产生完成脉冲。
-                state_nxt = IDLE;
+                state_d = S_IDLE;
             end
         endcase
     end
@@ -116,19 +122,29 @@ module request_controller (
     always_comb begin
         busy = 1'b1;
         done = 1'b0;
-        if (state_r == IDLE) begin
+        if (state_q == S_IDLE) begin
             busy = 1'b0;
         end
-        if (state_r == REPORT) begin
+        if (state_q == S_REPORT) begin
             done = 1'b1;
         end
     end
+
+    // synopsys translate_off
+    // 仿真检查：执行器只应在等待完成期间返回operation_done，其他状态出现即报告错误。
+    // 本块不参与综合，只读取设计信号，因此允许使用always_ff。
+    always_ff @(posedge clk) begin
+        if (rst_n && operation_done && (state_q != S_WAIT_DONE)) begin
+            $error("request_controller: 状态%s收到意外的operation_done", state_q.name());
+        end
+    end
+    // synopsys translate_on
 endmodule
 ```
 
-实际设计若有配置锁存、计数器、结果缓存或同步器，分别写出各自的`_set/_clr/_ena/_nxt`逻辑和原语实例，说明更新使能、复位值和关键时序关系，不因为它们共用`clk/rst_n`就拼进状态寄存器实例。写法见[primitives.md](primitives.md)第4节。
+实际设计若有配置锁存、计数器、结果缓存或同步器，分别写出各自的`_set/_clr/_en/_d`逻辑和原语实例，说明更新使能、复位值和关键时序关系，不因为它们共用`clk/rst_n`就拼进状态寄存器实例。写法见[primitives.md](primitives.md)第4节。
 
-对`state_nxt = success ? COMPLETE : RETRY;`一类既有代码，应在赋值前解释成功和失败各自的动作；对`case`后的强制错误跳转，应解释它会覆盖前面的正常转移。不要把默认恢复、错误锁定或成功优先级照抄到不具备这些行为的模块。
+对`state_d = success ? S_COMPLETE : S_RETRY;`一类既有代码，应在赋值前解释成功和失败各自的动作；对`case`后的强制错误跳转，应解释它会覆盖前面的正常转移。不要把默认恢复、错误锁定或成功优先级照抄到不具备这些行为的模块。
 
 ## 具名端口连接
 

@@ -23,17 +23,17 @@ module std_rst_sync #(
     output logic  rst_n_sync
 );
 
-    logic [DP-1:0] rst_sync_r;    // 复位同步链寄存器，复位期间全0，释放后从[0]开始逐拍移入1。
-    logic [DP-1:0] rst_sync_nxt;  // 同步链下一值：整体左移一位并在[0]移入1。
+    logic [DP-1:0] rst_sync_q;    // 复位同步链寄存器，复位期间全0，释放后从[0]开始逐拍移入1。
+    logic [DP-1:0] rst_sync_d;    // 同步链下一值：整体左移一位并在[0]移入1。
 
     // 同步链移位：复位释放后每拍向高位移入1，第DP拍最高位变为1。
-    assign rst_sync_nxt = {rst_sync_r[DP-2:0], 1'b1};
+    assign rst_sync_d = {rst_sync_q[DP-2:0], 1'b1};
 
     // 同步链寄存器：以rst_n_a异步清零，实现复位立即生效。
-    std_dffr #(.DW(DP), .RST_VAL('0)) u_rst_sync_dffr (rst_sync_nxt, rst_sync_r, clk, rst_n_a);
+    std_dffr #(.DW(DP), .RST_VAL('0)) u_rst_sync_dffr (rst_sync_d, rst_sync_q, clk, rst_n_a);
 
     // 复位输出：功能模式取同步链最高位；测试模式直接旁路到外部复位。
-    assign rst_n_sync = test_mode ? rst_n_a : rst_sync_r[DP-1];
+    assign rst_n_sync = test_mode ? rst_n_a : rst_sync_q[DP-1];
 
 // synopsys translate_off
     // 参数检查：同步级数少于2时无法提供亚稳态恢复时间，仿真开始即报错。
