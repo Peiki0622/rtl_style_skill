@@ -10,12 +10,37 @@
 .idea/
 __pycache__/
 *.py[cod]
-# EDA runs and generated outputs
+# EDA runs and generated outputs (all regressions write under runs/)
 runs/
 *.log
+# Simulation: VCS / Verdi intermediate and result files
+simv
+simv.*
+*.daidir/
+csrc/
+ucli.key
+vc_hdrs.h
+DVEfiles/
+*.vdb/
 *.vcd
 *.fsdb
 *.vpd
-simv
-simv.daidir/
-csrc/
+*.saif
+verdiLog/
+novas.rc
+novas.conf
+novas_dump.log
+# Synthesis: Design Compiler intermediate and result files
+WORK/
+alib-*/
+command.log
+default.svf
+filenames.log
+*.svf
+*.mr
+*.pvl
+*.syn
+*.ddc
+# Ad-hoc scratch areas
+tmp/
+scratch/
